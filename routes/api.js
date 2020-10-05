@@ -9,45 +9,113 @@
 'use strict';
 
 var expect = require('chai').expect;
-var MongoClient = require('mongodb').MongoClient;
-var ObjectId = require('mongodb').ObjectId;
-const MONGODB_CONNECTION_STRING = process.env.DB;
-//Example connection: MongoClient.connect(MONGODB_CONNECTION_STRING, function(err, db) {});
+const mongoose = require('mongoose');
+mongoose.connect(process.env.MONGO_URI);
+const bookSchema = new mongoose.Schema(
+  {
+    title: String,
+    comments: [String]
+  }, 
+  {
+    toObject: {
+      virtuals: true
+    },
+    toJSON: {
+      virtuals: true 
+    }
+  }
+);
+bookSchema.virtual('commentcount')
+.get(function() { return this.comments.length });
+const Book = mongoose.model('Book', bookSchema);
 
 module.exports = function (app) {
 
   app.route('/api/books')
-    .get(function (req, res){
-      //response will be array of book objects
-      //json res format: [{"_id": bookid, "title": book_title, "commentcount": num_of_comments },...]
+    .get(async (req, res) => {
+      let books = await Book
+        .find({})
+        .exec();
+      res.json(books.map(book => {
+        return {
+          _id: book._id, 
+          title: book.title, 
+          commentcount: book.commentcount
+        };
+      }));
     })
     
     .post(function (req, res){
-      var title = req.body.title;
-      //response will contain new book object including atleast _id and title
+      if(!req.body.title) {
+        res.send('validation failed');
+        return;
+      }
+
+      const book = new Book({
+        title: req.body.title
+      });
+
+      book.save((error, data) => {
+        if(error) console.log(error);
+        
+        res.json(data);
+      });
     })
     
     .delete(function(req, res){
-      //if successful response will be 'complete delete successful'
+      Book.deleteMany(
+        (error, data) => {
+          if(error) {
+            res.send('could not delete');
+
+            return;
+          }
+          
+          res.send('complete delete successful');
+        }
+      );
     });
 
 
 
   app.route('/api/books/:id')
-    .get(function (req, res){
-      var bookid = req.params.id;
-      //json res format: {"_id": bookid, "title": book_title, "comments": [comment,comment,...]}
+    .get((req, res) => {
+      Book.findById(req.params.id, (error, data) => {
+        if(error) {
+          res.send('no book exists');
+          return;
+        }
+
+        res.json(data);
+      });
     })
     
     .post(function(req, res){
-      var bookid = req.params.id;
-      var comment = req.body.comment;
-      //json res format same as .get
+      Book.findByIdAndUpdate(
+        req.params.id, 
+        {comments: req.body.comment},
+        {new: true},
+        (error, data) => {
+          if(error) console.log(error);
+
+          res.json(data);
+        }
+      );
     })
     
     .delete(function(req, res){
-      var bookid = req.params.id;
-      //if successful response will be 'delete successful'
+      Book.deleteOne(
+        {_id: req.body._id},
+        (error, data) => {
+          if(error) {
+            res.send('could not delete ' + req.body._id);
+
+            return;
+          }
+          
+          res.send('deleted ' + req.body._id);
+        }
+      );
     });
   
 };
